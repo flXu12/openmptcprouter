@@ -1,0 +1,16 @@
+diff --git a/luci/modules/luci-base/ucode/dispatcher.uc b/luci/modules/luci-base/ucode/dispatcher.uc
+index 09e53b885a0..16de87a9fd6 100644
+--- a/luci/modules/luci-base/ucode/dispatcher.uc
++++ b/luci/modules/luci-base/ucode/dispatcher.uc
+@@ -359,7 +359,10 @@ function build_pagetree() {
+ 		firstchild_ineligible: 'bool'
+ 	};
+ 
+-	let files = glob('/usr/share/luci/menu.d/*.json', '/usr/lib/lua/luci/controller/*.lua', '/usr/lib/lua/luci/controller/*/*.lua');
++	let menu_dir = http.getenv('LUCI_MENU_DIR');
++	let files = menu_dir
++		? glob(menu_dir + '/*.json')
++		: glob('/usr/share/luci/menu.d/*.json', '/usr/lib/lua/luci/controller/*.lua', '/usr/lib/lua/luci/controller/*/*.lua');
+ 	let cachefile;
+ 
+ 	if (indexcache) {

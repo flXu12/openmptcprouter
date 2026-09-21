@@ -1,0 +1,20 @@
+diff --git a/luci/modules/luci-base/htdocs/cgi-bin/luci b/luci/modules/luci-base/htdocs/cgi-bin/luci
+index 442e427d410..3ac7ce215e2 100755
+--- a/luci/modules/luci-base/htdocs/cgi-bin/luci
++++ b/luci/modules/luci-base/htdocs/cgi-bin/luci
+@@ -34,7 +34,14 @@ function write(data) {
+ 	return stdout.write(data);
+ }
+ 
+-let req = request(getenv(), read, write);
++let env = getenv();
++
++/* 9091 is the separate "lite" uhttpd instance created by the OpenMPTCProuter
++   feed; it serves a reduced menu set instead of the full one. */
++if (env.SERVER_PORT == '9091')
++	env.LUCI_MENU_DIR = '/usr/share/luci/menu.d-lite';
++
++let req = request(env, read, write);
+ 
+ dispatch(req);
+ 

@@ -49,8 +49,8 @@ DISABLE_FAILSAFE=${DISABLE_FAILSAFE:-no}
 OMR_RELEASE=${OMR_RELEASE:-$(git describe --tags `git rev-list --tags --max-count=1` | tail -1)}
 OMR_REPO=${OMR_REPO:-http://$OMR_HOST:$OMR_PORT/release/$OMR_RELEASE-$OMR_KERNEL/$OMR_TARGET}
 
-OMR_FEED_URL="${OMR_FEED_URL:-https://github.com/ysurac/openmptcprouter-feeds}"
-OMR_FEED_SRC="${OMR_FEED_SRC:-develop}"
+OMR_FEED_URL="${OMR_FEED_URL:-https://github.com/flXu12/openmptcprouter-feeds}"
+OMR_FEED_SRC="${OMR_FEED_SRC:-feature/tag-063}"
 
 CUSTOM_FEED_URL="${CUSTOM_FEED_URL}"
 CUSTOM_FEED_URL_BRANCH="${CUSTOM_FEED_URL_BRANCH:-main}"
@@ -1044,6 +1044,14 @@ if ! patch -Rf -N -p1 -s --dry-run < ../../patches/luci-occitan.patch; then
 fi
 if [ "$OMR_KERNEL" = "5.4" ] && ! patch -Rf -N -p1 -s --dry-run < ../../patches/luci-base-add_array_sort_utilities.patch; then
 	patch -N -p1 -s < ../../patches/luci-base-add_array_sort_utilities.patch
+fi
+if [ "$OMR_KERNEL" = "6.12" ] || [ "$OMR_KERNEL" = "6.17" ]; then
+	if ! patch -Rf -N -p1 -s --dry-run < ../../patches/luci-base-menu-dir.patch; then
+		patch -N -p1 -s < ../../patches/luci-base-menu-dir.patch
+	fi
+	if ! patch -Rf -N -p1 -s --dry-run < ../../patches/luci-base-lite-cgi.patch; then
+		patch -N -p1 -s < ../../patches/luci-base-lite-cgi.patch
+	fi
 fi
 #if [ -d luci/modules/luci-mod-status ]; then
 #	if ! patch -Rf -N -p1 -s --dry-run < ../../patches/luci-nftables.patch; then
