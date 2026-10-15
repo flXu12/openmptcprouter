@@ -2,6 +2,7 @@
 
 在 Ubuntu 服务器上构建 OpenMPTCProuter 固件（以 x86_64 / 内核 6.12 为例）。
 
+> 新接手项目先看 [handover-guide.md](handover-guide.md)（交接手册）。
 > 构建完成后如何验证 lite 菜单，见 [lite-menu-verify.md](lite-menu-verify.md)。
 
 ## 0. 适用范围
@@ -184,6 +185,9 @@ x86_64/6.12/source/bin/targets/x86/64/
 - **`squashfs` / `ext4`** —— rootfs 类型。`squashfs` 是 OMR 标准（只读 + overlay，
   支持恢复出厂设置），和真机设备一致；`ext4` 是纯可写分区
 - **`combined` / `combined-efi`** —— 完整可启动镜像，后者用于 UEFI 启动
+- 两种 rootfs 在功能上**没有差别**：包、补丁、菜单完全一致。固件行为异常时不要先怀疑
+  制品类型——2026-10-08 物理机用 ext4 验出 9091 入口 404，与 ext4 无关
+  （根因见 [lite-menu-verify.md](lite-menu-verify.md) 验证点 4）
 
 ### 不能用来启动的
 
@@ -204,3 +208,48 @@ dd bs=4M if=openmptcprouter--*.img of=/dev/sdX conv=fsync
 
 ⚠️ `of=` 写错设备会抹掉那块盘的数据。写**整块盘**（`/dev/sdb`）而非分区（`/dev/sdb1`）。
 测试建议写 U 盘并从 U 盘启动，不动机器原有系统。
+
+## 8. 改了 feeds 包之后如何增量重建
+
+适用场景：改动只在 `openmptcprouter-feeds` 的某个包里（例如 2026-10-13 的 lite 菜单裁剪，
+只动了 `luci-app-openmptcprouter`）。不必从零重跑 `build.sh`。
+
+前提：改动**已提交并推送到 fork**——构建机是从 GitHub 拉代码的（第 2 节）。
+
+```sh
+# 1. 更新构建机上的 feeds 克隆（做的是 build.sh 里 _get_repo 同样的事）
+cd /omr-build/openmptcprouter/feeds/openmptcprouter
+git fetch origin
+git checkout -f origin/feature/tag-063 -B build
+
+# 2. 进 source 树，重新索引并增量编译
+cd /omr-build/openmptcprouter/x86_64/6.12/source
+export FORCE_UNSAFE_CONFIGURE=1
+./scripts/feeds install -a -d y -f -p openmptcprouter
+make -j4 IGNORE_ERRORS=m 2>&1 | tee /tmp/omr-build3.log
+```
+
+- `make` 是增量的：只重编变过的包，再重新生成 rootfs 和镜像，通常几分钟到几十分钟
+- **仍然不要跑 `build.sh`**（原因见第 6 节）：它会把 OpenWrt 源码 `checkout -f` 回去，
+  ppp 哈希等本地修改再次丢失
+- 产物仍在 `bin/targets/x86/64/`；新固件是否真的吃到了改动，看 `version.buildinfo` /
+  `manifest` 的时间戳即可
+
+### 只改菜单 json 时，可以完全不动固件
+
+`menu.d-lite/*.json` 是 uhttpd 运行时读取的普通文件（squashfs + overlay 可写）。
+在一台**已刷机的设备或虚拟机**上直接替换就能验证，不必重建固件：
+
+```sh
+# 把改后的 json 全部放入（scp 或直接粘贴），注意新增文件也要一起放
+rm -f /usr/share/luci/menu.d-lite/*.json
+# ... 放入新的 menu.d-lite/*.json ...
+rm -f /tmp/luci-indexcache*
+/etc/init.d/uhttpd restart
+```
+
+适合先验证裁剪效果和浏览器登录流程，确认无误后再走增量重建出正式固件。
+
+⚠️ 2026-09-26 那批固件构建于菜单裁剪**之前**：其中 `menu.d-lite` 仍是完整拷贝，
+且**没有** `luci-base.json`——所以那批固件的 9091 没有登录页。临时替换时务必把
+新增的 `luci-base.json` 一并放入，否则 lite 实例还是进不了登录页。

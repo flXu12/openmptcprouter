@@ -2,6 +2,7 @@
 
 验证「9090 出完整菜单、9091 出 lite 菜单」这套机制是否正常工作。
 
+> 新接手项目先看 [handover-guide.md](handover-guide.md)（交接手册）。
 > 构建固件的步骤见 [build.md](build.md)。
 
 ## 机制一句话
@@ -19,12 +20,23 @@
 | `dispatcher.uc` 支持 `LUCI_MENU_DIR` | `patches/luci-base-menu-dir.patch` |
 | CGI 入口按端口注入该变量 | `patches/luci-base-lite-cgi.patch` |
 | 两个补丁的门控（仅 6.12/6.17） | `build.sh` 的补丁段落 |
-| lite 菜单定义（8 个 json） | `openmptcprouter-feeds` → `luci-app-openmptcprouter/root/usr/share/luci/menu.d-lite/` |
+| lite 鉴权 + 分类节点 + ubus/uci 端点 | `openmptcprouter-feeds` → `menu.d-lite/luci-base.json` |
+| lite 菜单定义（按规格裁剪后） | `openmptcprouter-feeds` → `luci-app-openmptcprouter/root/usr/share/luci/menu.d-lite/` |
 | 创建 9091 实例 + DNAT 转发 | 同包的 `root/etc/uci-defaults/2100-omr-lite-menu` |
+
+**关于 `luci-base.json`**：分类节点（`admin`、`admin/status`、`admin/system`…）和登录鉴权
+（`auth.login`）都定义在 luci-base 的菜单里，而 lite 实例只读 `menu.d-lite/`。
+缺了它，9091 不仅渲染不出一级菜单，而且**没有登录页**——未登录请求会一直 403。
+lite 版 `luci-base.json` 只保留 `admin` 鉴权节点、5 个分类、`admin/ubus/*`、
+`admin/uci/*`（JS 视图的 RPC 与配置应用端点）和 `admin/logout`，
+砍掉了需要 Lua controller 页面的 `admin/vpn` 等分支。
 
 ## 前置条件
 
 - 已按 `OMR_KERNEL=6.12` 构建出 x86_64 镜像（补丁只在 6.12/6.17 生效）
+- ⚠️ 2026-09-26 那批固件构建于菜单裁剪之前：其 `menu.d-lite` 仍是完整拷贝，
+  且没有 `luci-base.json`（9091 无登录页）。要验证裁剪效果，先按
+  [build.md](build.md) 第 8 节增量重建，或在运行中的设备上临时替换 json（同节末尾）
 - 在构建服务器上操作
 
 ---
@@ -97,8 +109,8 @@ uhttpd.lite.listen_http='0.0.0.0:9091' '[::]:9091'
 
 ### 先制造差异
 
-lite 菜单默认是完整菜单的**逐字节拷贝**（裁剪是实现者后续要做的内容）。
-两棵树内容相同时，任何路径在两边都存在，测不出区别——所以要先挪走一个。
+lite 菜单已按产品规格裁剪，与完整菜单本就不同。这一步要制造一个**可控**的差异：
+挑一个在 `menu.d-lite/` 里**确实存在**的文件挪走，让它在 9091 上消失。
 
 ```sh
 mv /usr/share/luci/menu.d-lite/luci-mod-status.json /tmp/
@@ -133,6 +145,25 @@ rm -f /tmp/luci-indexcache*
 /etc/init.d/uhttpd restart
 ```
 
+## 验证点 4 · 入口 URL 能不能打开 ★ 踩过的坑
+
+验证点 3 测的是**深层路径** `/admin/status/overview`，它只证明"路由树不同"。
+但用户实际访问的是**入口** `/cgi-bin/luci/`——这需要 `menu.d-lite/luci-base.json`
+里的 `admin` 根节点（`title` + `action: firstchild` + `auth.login`）。
+
+dispatcher 的 `resolve_firstchild()` 只把**同时有 title 和 action** 的子节点当候选落点；
+`admin` 根节点缺失时，入口请求找不到任何候选 → `No page is registered at '/'`。
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' 127.0.0.1:9091/cgi-bin/luci/
+```
+
+**期望**：`302`（跳转到登录页或概览页）。
+**`404`**：`menu.d-lite` 缺 `luci-base.json` → 2026-10-08 物理机验证踩的就是这个坑。
+
+> 报错文本还能反过来定位问题：`No page is registered at '/'` = lite 目录**有文件**
+> 但缺根节点；`No root node was registered` = lite 目录**整个为空/缺失**。
+
 ---
 
 ## 判读表
@@ -140,9 +171,10 @@ rm -f /tmp/luci-indexcache*
 | 结果 | 含义 |
 |---|---|
 | `lite 404` / `full 403` | ✅ 机制正常 |
-| 两边都 `403` | `menu.d-lite` 内容与 `menu.d` 相同——**未裁剪**时的正常状态，不是故障 |
+| 两边都 `403` | `menu.d-lite` 的改动没生效——缓存没清或文件没挪走 |
 | 两边都 `404` | 目录被误删，或 `$P` 写错 |
 | lite 连接失败 / `000` | 9091 实例没起来 → 回到验证点 1、2 |
+| 9091 入口 `/cgi-bin/luci/` 返回 404（深层 URL 可达） | `menu.d-lite` 缺 `luci-base.json`，根节点无法解析 → 验证点 4。2026-10-08 物理机（ext4 制品）即此情况，与制品类型无关 |
 
 ## 两个操作提醒
 
@@ -160,14 +192,38 @@ rm -f /tmp/luci-indexcache*
 
 **没验证**
 
-- 菜单内容本身（默认仍是完整拷贝，需人工裁剪）
 - `vpn` 区那条 DNAT 转发规则（本机 localhost 测试不经过它）
-- 跨端口单点登录（需浏览器登录才能确认）
+- 浏览器登录（login 页面由 lite 版 `luci-base.json` 提供，需浏览器确认）
+- 跨端口单点登录
 
-## 已知未完成项
+## 菜单内容（2026-10-13 已按产品规格裁剪）
 
-- **菜单裁剪**：`menu.d-lite/*.json` 需按产品需求删条目。改完 `rm -f /tmp/luci-indexcache*`
-  再 `/etc/init.d/uhttpd restart` 即生效。注意**删条目 = 该页面对该端口彻底不可达（404）**，
-  别误删 lite 用户需要的页面。
+一级菜单顺序：Status → System → Modem(5G网络) → Services → Network。
+
+- **Status**：Overview、Realtime Graphs（含 load/bandwidth/wireless/connections 子页）
+- **System**：OpenMPTCProuter（聚合设置向导 + 状态）、Administration（管理权）、Backup / Flash Firmware
+- **Modem**（5G网络）：仅 Modemdata Status 一个页面——原 4 个子页
+  （Modem(s) / Diagnostics / Modem(s) configuration / Package configuration）已从 lite 集合移除。
+- **Services**：仅 SNMPD
+- **Network**：MPTCP、Interfaces、Wireless、DHCP and DNS、Firewall
+
+要点：
+
+- **安全提醒**：2026-09-26 批次固件的 9091 没有任何鉴权节点（`luci-base.json` 缺失，
+  `auth.login` 全部不在 lite 树里）——不仅没有登录页，直接访问具体页面 URL 也**不强制登录**，
+  能否打开只取决于该页有没有 ACL 依赖。修复方式同上：补 `luci-base.json`。
+- **定制项，本期暂不处理**（2026-10-13 确认）：
+  - **OMR Link RTT**（`admin/network/omr-rtt`）——该页面在整个代码库中**不存在**，
+    属定制内容，需先定数据来源再实现。
+  - **5G 模块（Modemdata）**——同属定制内容，其菜单结构不再调整；lite 中保持
+    「仅 Modemdata Status 单项」的现状，`depends` 仍挂在 `luci-app-modemdata` 包上。
+- 聚合路由器的"状态"页和它的数据源 `interfaces_status`、向导的保存入口
+  `wizard_add` 原本只由 Lua controller 定义，lite 实例不扫描 Lua controller，
+  已在 `menu.d-lite/luci-app-openmptcprouter.json` 里以 JSON action 补齐。
+- `admin/system/openmptcprouter` 的路径段硬编码为 `openmptcprouter`；
+  若 uci `openmptcprouter.settings.menu` 改过菜单名，两处需同步。
 - **真机目标**：本流程验的是 x86_64 功能。BPI-R4-PRO-4E 目前不在支持列表内，
   需要先解决该板子的 target/DTS 支持才能产出真机固件。
+- 删条目 = 该页面对 9091 **彻底 404**。改完 json 后
+  `rm -f /tmp/luci-indexcache*` 再 `/etc/init.d/uhttpd restart` 生效
+  （缓存键含文件清单哈希，文件增删本身也会换缓存，但保险起见还是清一下）。
