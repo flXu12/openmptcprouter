@@ -23,7 +23,7 @@ OpenMPTCProuter（OMR）是一个基于 OpenWrt 的软路由系统，把多条�
 ## 2. 电脑里的四个目录（工作区地图）
 
 工作区在 `/Users/qingcheng/Desktop/workspace/suko/omr/`，**构建不在本机**，
-在 Ubuntu 构建机的 `/omr-build/openmptcprouter/`。
+在 Ubuntu 构建机的 `/root/omr-build/openmptcprouter/`。
 
 | 目录 | 是什么 | 你会不会改它 |
 |---|---|---|
@@ -125,10 +125,10 @@ ssh root@192.168.100.1 'rm -f /tmp/luci-indexcache* && /etc/init.d/uhttpd restar
 前提：改动已 push。在构建机上（详见 build.md §8）：
 
 ```sh
-cd /omr-build/openmptcprouter/feeds/openmptcprouter
+cd /root/omr-build/openmptcprouter/feeds/openmptcprouter
 git fetch origin && git checkout -f origin/feature/tag-063 -B build
 
-cd /omr-build/openmptcprouter/x86_64/6.12/source
+cd /root/omr-build/openmptcprouter/x86_64/6.12/source
 export FORCE_UNSAFE_CONFIGURE=1
 ./scripts/feeds install -a -d y -f -p openmptcprouter
 make -j4 IGNORE_ERRORS=m 2>&1 | tee /tmp/omr-build3.log

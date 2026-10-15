@@ -218,12 +218,12 @@ dd bs=4M if=openmptcprouter--*.img of=/dev/sdX conv=fsync
 
 ```sh
 # 1. 更新构建机上的 feeds 克隆（做的是 build.sh 里 _get_repo 同样的事）
-cd /omr-build/openmptcprouter/feeds/openmptcprouter
+cd /root/omr-build/openmptcprouter/feeds/openmptcprouter
 git fetch origin
 git checkout -f origin/feature/tag-063 -B build
 
 # 2. 进 source 树，重新索引并增量编译
-cd /omr-build/openmptcprouter/x86_64/6.12/source
+cd /root/omr-build/openmptcprouter/x86_64/6.12/source
 export FORCE_UNSAFE_CONFIGURE=1
 ./scripts/feeds install -a -d y -f -p openmptcprouter
 make -j4 IGNORE_ERRORS=m 2>&1 | tee /tmp/omr-build3.log
